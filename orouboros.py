@@ -38,7 +38,7 @@ def make_argparser():
     parser.add_argument('--key', required=True)
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=2500)
-    parser.add_argument('--ssl_port', type=int, default=5870)
+    parser.add_argument('--ssl-port', type=int, required=False)
     parser.add_argument('--local', action='store_true')
     parser.add_argument('--forward', action='store_true')
     parser.add_argument('--forward-host', default='127.0.0.1')
@@ -46,8 +46,8 @@ def make_argparser():
     parser.add_argument('--log', default='/tmp/mail.log')
     parser.add_argument('--log-level', type=str.upper, default='WARN')
     parser.add_argument('--forward-domain', action='append', required=True)
-    parser.add_argument('--mailqueue', type=Path, required=True)
-    parser.add_argument('--mboxdir', type=Path, required=True)
+    parser.add_argument('--mailqueue', type=Path)
+    parser.add_argument('--mboxdir', type=Path)
     return parser
 
 
@@ -91,6 +91,11 @@ class AuthSession(Session):
 
 
 class AuthServer(Server):
+    def __init__(self, *args, ident=None, **kwargs):
+        # TODO: When a release of aiosmtpd is out, ident can be put in factory()  -W. Werner, 2018-03-01
+        super().__init__(*args, **kwargs)
+        self.__ident__ == 'orouboros SMTP 1.1'
+
     @syntax('AUTH protocol data')
     async def smtp_AUTH(self, arg):
         if not arg:
@@ -110,8 +115,16 @@ class AuthServer(Server):
 
 
 class AuthController(Controller):
+    def __init__(self, *args, starttls_context, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.starttls_context = starttls_context
+
     def factory(self):
-        return AuthServer(self.handler)
+        return AuthServer(
+            self.handler,
+            hostname=self.hostname,
+            tls_context=self.starttls_context,
+        )
 
 
 class ForwardingHandler:
@@ -123,7 +136,7 @@ class ForwardingHandler:
 
     async def handle_EHLO(self, server, session, envelope, hostname):
         session.host_name = hostname
-        return '250-AUTH PLAIN\n250 HELP'
+        return '250-AUTH PLAIN\n250-STARTTLS\n250 HELP'
 
     async def handle_RCPT(self, server, session, envelope, address, rcpt_options):
         logger.debug(f'Sending mail to {address}')
@@ -223,7 +236,8 @@ class LocalHandler:
             if recipient.rpartition('@')[2] in self.ok_domains
         ]
 
-        if not valid_recipients:
+        # TODO: remove False and -W. Werner, 2018-03-01
+        if False and not valid_recipients:
             logger.error(f'No valid recipients in {envelope.rcpt_tos}')
             return '554 Transaction failed'
         else:
@@ -248,10 +262,20 @@ def run():
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     context.load_cert_chain(args.cert, args.key)
 
-    logger.debug('Ensuring mail queue exists')
-    args.mailqueue.mkdir(parents=True, exist_ok=True)
-    logger.debug('Ensuring mbox path exists')
-    args.mboxdir.mkdir(parents=True, exist_ok=True)
+    if args.local:
+        if args.mboxdir is None:
+            parser.error('--local requires --mboxdir')
+        else:
+            logger.debug('Ensuring mail queue exists')
+            args.mboxdir.mkdir(parents=True, exist_ok=True)
+
+    if args.forward:
+        if arg.mailqueue is None:
+            parser.error('--forward requires --mailqueue')
+        else:
+            logger.debug('Ensuring mbox path exists')
+            args.mailqueue.mkdir(parents=True, exist_ok=True)
+
     controllers = []
     if args.forward:
         controllers.append(
@@ -264,9 +288,24 @@ def run():
                 ),
                 port=args.port,
                 hostname=args.host,
-                ssl_context=context,
+                starttls_context=context,
             )
         )
+        if args.ssl_port:
+            controllers.append(
+                AuthController(
+                    ForwardingHandler(
+                        ok_domains=args.forward_domain,
+                        forward_host=args.forward_host,
+                        forward_port=args.forward_port,
+                        mailqueue_dir=args.mailqueue,
+                    ),
+                    port=args.port,
+                    hostname=args.host,
+                    starttls_context=context,
+                    ssl_context=context,
+                )
+            )
 
     if args.local:
         controllers.append(
@@ -278,6 +317,7 @@ def run():
                 port=args.forward_port,
                 hostname='0.0.0.0',
                 ssl_context=context,
+                starttls_context=context,
             )
         )
     for controller in controllers:
