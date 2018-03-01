@@ -270,7 +270,7 @@ def run():
             args.mboxdir.mkdir(parents=True, exist_ok=True)
 
     if args.forward:
-        if arg.mailqueue is None:
+        if args.mailqueue is None:
             parser.error('--forward requires --mailqueue')
         else:
             logger.debug('Ensuring mbox path exists')
