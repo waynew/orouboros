@@ -16,6 +16,8 @@ import base64
 import email.parser
 import logging
 import mailbox
+import os
+import signal
 import smtplib
 import ssl
 
@@ -101,7 +103,8 @@ class AuthServer(Server):
         if not arg:
             await self.push('250 AUTH PLAIN')
             return
-        protocol, credentials = arg.split(' ', maxsplit=1)
+        # People try haxoring
+        protocol, credentials, *_ = arg.split(' ', maxsplit=1) + ['', '']
         status = await self._call_handler_hook('AUTH', protocol, credentials)
         if status is MISSING:
             ...  #blarg
@@ -320,12 +323,16 @@ def run():
                 starttls_context=context,
             )
         )
+
+    logger.warn(f'orouboros staring with pid {os.getpid()}')
     for controller in controllers:
         logger.debug(f'starting controller {controller}')
         controller.start()
 
     if controllers:
-        input('Press <enter> to stop')
+        logger.info('Waiting for SIGINT or SIGQUIT')
+        sig = signal.sigwait([signal.SIGINT, signal.SIGQUIT])
+        logger.warn(f'{sig} caught, shutting down')
     else:
         print('Specify at least one of --forward or --local on the command line')
 
