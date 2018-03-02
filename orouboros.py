@@ -303,7 +303,7 @@ def run():
                         forward_port=args.forward_port,
                         mailqueue_dir=args.mailqueue,
                     ),
-                    port=args.port,
+                    port=args.ssl_port,
                     hostname=args.host,
                     starttls_context=context,
                     ssl_context=context,

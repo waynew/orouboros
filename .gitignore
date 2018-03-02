@@ -12,3 +12,4 @@ tags
 *.gz
 *.tar
 build/
+*.pem
