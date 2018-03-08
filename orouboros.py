@@ -31,7 +31,7 @@ from aiosmtpd.handlers import Mailbox
 from aiosmtpd.smtp import SMTP as Server, syntax, MISSING, Session
 
 
-__version__ = '0.1.8'
+__version__ = '0.1.9'
 logger = logging.getLogger('orouboros')
 
 
@@ -111,7 +111,8 @@ class AuthServer(Server):
             ...  #blarg
         elif status is AuthStatus.ok:
             self.session.is_authenticated = True
-        await self.push(status.value)
+        logger.debug(f'Returning {status}')
+        await self.push(status.value if status in AuthStatus else status)
 
     def _create_session(self):
         return AuthSession(loop=self.loop)
@@ -139,7 +140,7 @@ class ForwardingHandler:
         self.mailqueue_dir = mailqueue_dir
 
     async def handle_exception(self, error):
-        logger.warn('{error} caught')
+        logger.warn(f'{error} caught')
         return '542 internal server error'
 
     async def handle_EHLO(self, server, session, envelope, hostname):
@@ -195,6 +196,8 @@ class ForwardingHandler:
         with message_file.open(mode='rb') as f:
             logger.debug('Parsing message')
             msg = parser.parse(f)
+            if msg['To'] is None:
+                msg['To'] = 'none@none'
             logger.debug('Connecting to remote server')
             with smtplib.SMTP_SSL(self.forward_host, self.forward_port) as smtp:
                 logger.debug('logging in...')
