@@ -31,7 +31,7 @@ from aiosmtpd.handlers import Mailbox
 from aiosmtpd.smtp import SMTP as Server, syntax, MISSING, Session
 
 
-__version__ = '0.1.7'
+__version__ = '0.1.8'
 logger = logging.getLogger('orouboros')
 
 
@@ -201,7 +201,8 @@ class ForwardingHandler:
                 smtp.login('fnord', 'fnord')
                 logger.debug('Sending message...')
                 smtp.send_message(msg)
-        logger.debug('Message sent OK!')
+                logger.debug('Message sent OK!')
+            logger.debug('Disconnected from remote server')
         logger.debug(f'Deleting message {str(message_file)!r}')
         message_file.unlink()
         logger.debug('Done forwarding message')
