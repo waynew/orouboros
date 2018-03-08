@@ -31,6 +31,7 @@ from aiosmtpd.handlers import Mailbox
 from aiosmtpd.smtp import SMTP as Server, syntax, MISSING, Session
 
 
+__version__ = '0.1.7'
 logger = logging.getLogger('orouboros')
 
 
@@ -136,6 +137,10 @@ class ForwardingHandler:
         self.forward_port = forward_port
         self.ok_domains = ok_domains
         self.mailqueue_dir = mailqueue_dir
+
+    async def handle_exception(self, error):
+        logger.warn('{error} caught')
+        return '542 internal server error'
 
     async def handle_EHLO(self, server, session, envelope, hostname):
         session.host_name = hostname
@@ -324,7 +329,7 @@ def run():
             )
         )
 
-    logger.warn(f'orouboros staring with pid {os.getpid()}')
+    logger.warn(f'orouboros {__version__} staring with pid {os.getpid()}')
     for controller in controllers:
         logger.debug(f'starting controller {controller}')
         controller.start()

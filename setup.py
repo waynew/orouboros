@@ -1,10 +1,14 @@
 import os
 from setuptools import setup, find_packages
 
-__version__ = '0.1.6'
-
+root = os.path.dirname(__file__)
 def read(fname):
-    return open(os.path.join(os.path.dirname(__file__), fname)).read()
+    return open(os.path.join(root, fname)).read()
+
+version = {}
+with open(os.path.join(root, 'orouboros.py')) as f:
+    exec(f.read(), version)
+    __version__ = version['__version__']
 
 
 install_requires = [
