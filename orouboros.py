@@ -6,7 +6,6 @@ orouboros --cert /path/to/your/certfile.pem
           --ssl-port 587
           --forward-host example.com
           --forward-port 587
-          --mailqueue /path/to/mailqueue
           --mboxdir /path/to/maildir
           --forward
           --local
@@ -19,6 +18,7 @@ import mailbox
 import os
 import signal
 import smtplib
+import socket
 import ssl
 
 from contextlib import contextmanager
@@ -31,7 +31,7 @@ from aiosmtpd.handlers import Mailbox
 from aiosmtpd.smtp import SMTP as Server, syntax, MISSING, Session
 
 
-__version__ = '0.1.9'
+__version__ = '0.1.10'
 logger = logging.getLogger('orouboros')
 
 
@@ -49,7 +49,6 @@ def make_argparser():
     parser.add_argument('--log', default='/tmp/mail.log')
     parser.add_argument('--log-level', type=str.upper, default='WARN')
     parser.add_argument('--forward-domain', action='append', required=True)
-    parser.add_argument('--mailqueue', type=Path)
     parser.add_argument('--mboxdir', type=Path)
     return parser
 
@@ -133,11 +132,10 @@ class AuthController(Controller):
 
 
 class ForwardingHandler:
-    def __init__(self, *, forward_host, forward_port, ok_domains, mailqueue_dir):
+    def __init__(self, *, forward_host, forward_port, ok_domains):
         self.forward_host = forward_host
         self.forward_port = forward_port
         self.ok_domains = ok_domains
-        self.mailqueue_dir = mailqueue_dir
 
     async def handle_exception(self, error):
         logger.warn(f'{error} caught')
@@ -149,6 +147,7 @@ class ForwardingHandler:
 
     async def handle_RCPT(self, server, session, envelope, address, rcpt_options):
         logger.debug(f'Sending mail to {address}')
+        # TODO: this is where address checking should happen -W. Werner, 2018-03-08
         envelope.rcpt_tos.append(address)
         return '250 OK'
 
@@ -156,25 +155,14 @@ class ForwardingHandler:
         logger.debug(f'Session auth? {session.is_authenticated}')
         logger.debug(f'Message is from {envelope.mail_from!r}')
         logger.debug(f'Message is for {envelope.rcpt_tos!r}')
-        valid_recipients = [
-            recipient
-            for recipient in envelope.rcpt_tos
-            if recipient.rpartition('@')[2] in self.ok_domains
-        ]
-        if not valid_recipients:
-            logger.warn(f'No valid recipients in {envelope.rcpt_tos}')
-            return '554 Transaction failed'
-        else:
-            logger.info(f'Sending mail to {valid_recipients}')
-            digest = sha1(envelope.content).hexdigest()
-            mailpath = self.mailqueue_dir / digest
-            logger.info(f'Writing mail to {str(mailpath)!r}')
-            mailpath.write_text(
-                envelope.content.decode('utf8', errors='replace')
-            )
-            logger.debug('Queing forwarder')
-            session.loop.create_task(self.forward_message(session.loop))
-            logger.debug('Queued')
+        try:
+            with smtplib.SMTP_SSL(self.forward_host, self.forward_port, timeout=10) as smtp:
+                smtp.login('fnord', 'fnord')
+                logger.debug('Sending message...')
+                smtp.sendmail(envelope.mail_from, envelope.rcpt_tos, envelope.content)
+                logger.debug('Message sent!')
+        except socket.timeout:
+            return '450 Mailbox busy, try again later'
         return '250 Message accepted for delivery, eh?'
 
     async def handle_AUTH(self, server, session, envelope, protocol, credentials):
@@ -185,33 +173,6 @@ class ForwardingHandler:
             return AuthStatus.ok
         else:
             return AuthStatus.invalid
-
-    # TODO: forward message or messages? -W. Werner, 2018-03-01
-    async def forward_message(self, loop):
-        message_files = [
-            file for file in self.mailqueue_dir.iterdir() if file.is_file()
-        ]
-        message_file = message_files.pop()
-        parser = email.parser.BytesParser()
-        with message_file.open(mode='rb') as f:
-            logger.debug('Parsing message')
-            msg = parser.parse(f)
-            if msg['To'] is None:
-                msg['To'] = 'none@none'
-            logger.debug('Connecting to remote server')
-            with smtplib.SMTP_SSL(self.forward_host, self.forward_port) as smtp:
-                logger.debug('logging in...')
-                smtp.login('fnord', 'fnord')
-                logger.debug('Sending message...')
-                smtp.send_message(msg)
-                logger.debug('Message sent OK!')
-            logger.debug('Disconnected from remote server')
-        logger.debug(f'Deleting message {str(message_file)!r}')
-        message_file.unlink()
-        logger.debug('Done forwarding message')
-        if message_files:
-            logger.debug(f'{len(message_files)} messages left to forward')
-            loop.create_task(self.forward_message(loop))
 
 
 class LocalHandler:
@@ -278,15 +239,8 @@ def run():
         if args.mboxdir is None:
             parser.error('--local requires --mboxdir')
         else:
-            logger.debug('Ensuring mail queue exists')
-            args.mboxdir.mkdir(parents=True, exist_ok=True)
-
-    if args.forward:
-        if args.mailqueue is None:
-            parser.error('--forward requires --mailqueue')
-        else:
             logger.debug('Ensuring mbox path exists')
-            args.mailqueue.mkdir(parents=True, exist_ok=True)
+            args.mboxdir.mkdir(parents=True, exist_ok=True)
 
     controllers = []
     if args.forward:
@@ -296,7 +250,6 @@ def run():
                     ok_domains=args.forward_domain,
                     forward_host=args.forward_host,
                     forward_port=args.forward_port,
-                    mailqueue_dir=args.mailqueue,
                 ),
                 port=args.port,
                 hostname=args.host,
@@ -310,7 +263,6 @@ def run():
                         ok_domains=args.forward_domain,
                         forward_host=args.forward_host,
                         forward_port=args.forward_port,
-                        mailqueue_dir=args.mailqueue,
                     ),
                     port=args.ssl_port,
                     hostname=args.host,
