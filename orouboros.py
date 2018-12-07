@@ -31,8 +31,9 @@ from aiosmtpd.handlers import Mailbox
 from aiosmtpd.smtp import SMTP as Server, syntax, MISSING, Session
 
 
-__version__ = '0.1.10'
+__version__ = '0.1.11'
 logger = logging.getLogger('orouboros')
+BLACKLIST_DOMAINS = ('qq.com',)
 
 
 def make_argparser():
@@ -138,16 +139,28 @@ class ForwardingHandler:
         self.ok_domains = ok_domains
 
     async def handle_exception(self, error):
-        logger.warn(f'{error} caught')
+        logger.exception(f'{error} caught')
         return '542 internal server error'
 
     async def handle_EHLO(self, server, session, envelope, hostname):
         session.host_name = hostname
         return '250-AUTH PLAIN\n250-STARTTLS\n250 HELP'
 
+    async def handle_MAIL(self, server, session, envelope, address, mail_options):
+        logger.debug(f'Mail from {address!r}')
+        local_part, _, remote_part = address.rpartition('@')
+        if remote_part in BLACKLIST_DOMAINS:
+            return '550 nope'
+        envelope.mail_from = address
+        envelope.mail_options.extend(mail_options)
+        return '250 OK'
+
     async def handle_RCPT(self, server, session, envelope, address, rcpt_options):
         logger.debug(f'Sending mail to {address}')
         # TODO: this is where address checking should happen -W. Werner, 2018-03-08
+        local_part, _, remote_part = address.rpartition('@')
+        if remote_part in BLACKLIST_DOMAINS:
+            return '550 nope'
         envelope.rcpt_tos.append(address)
         return '250 OK'
 
@@ -166,9 +179,10 @@ class ForwardingHandler:
         return '250 Message accepted for delivery, eh?'
 
     async def handle_AUTH(self, server, session, envelope, protocol, credentials):
-        username, password = base64.b64decode(
+        
+        username, password, *_ = base64.b64decode(
             credentials.encode()
-        ).lstrip(b'\x00').decode().split('\x00')
+        ).lstrip(b'\x00').decode().split('\x00') + ['', '']
         if validate_credentials(username, password):
             return AuthStatus.ok
         else:
@@ -190,9 +204,9 @@ class LocalHandler:
         return '250 OK'
 
     async def handle_AUTH(self, server, session, envelope, protocol, credentials):
-        username, password = base64.b64decode(
+        username, password, *_ = base64.b64decode(
             credentials.encode()
-        ).lstrip(b'\x00').decode().split('\x00')
+        ).lstrip(b'\x00').decode().split('\x00') + ['', '']
         if validate_credentials(username, password):
             return AuthStatus.ok
         else:
@@ -209,7 +223,7 @@ class LocalHandler:
             if recipient.rpartition('@')[2] in self.ok_domains
         ]
 
-        # TODO: remove False and -W. Werner, 2018-03-01
+        # TODO: remove False and -W. Werner, 2018-03-01 - also check recipients in RCPT
         if False and not valid_recipients:
             logger.error(f'No valid recipients in {envelope.rcpt_tos}')
             return '554 Transaction failed'
@@ -217,9 +231,9 @@ class LocalHandler:
             logger.info(f'Sending mail to {valid_recipients}')
             parser = email.parser.BytesParser()
             msg = parser.parsebytes(envelope.original_content)
-            for recipient in valid_recipients:
+            for recipient in valid_recipients or ['fnord']:
                 local_part, _, domain = recipient.rpartition('@')
-                with get_mbox(self.mbox_dir, local_part) as mbox:
+                with get_mbox(self.mbox_dir, local_part.lstrip('./')) as mbox:
                     mbox.add(msg)
 
         return '250 Message accepted for delivery, eh?'
