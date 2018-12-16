@@ -109,7 +109,7 @@ class AuthServer(Server):
             await self.push("334 ")  # gimme more gimme more!
             line = await self._reader.readline()
             credentials = line.strip().decode()
-            if credentials = '*':
+            if credentials == '*':
                 await self.push("501 Auth aborted")
                 return
 
