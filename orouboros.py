@@ -105,6 +105,14 @@ class AuthServer(Server):
             return
         # People try haxoring
         protocol, credentials, *_ = arg.split(' ', maxsplit=1) + ['', '']
+        if not any(credentials):
+            await self.push("334 ")  # gimme more gimme more!
+            line = await self._reader.readline()
+            credentials = line.strip().decode()
+            if credentials = '*':
+                await self.push("501 Auth aborted")
+                return
+
         status = await self._call_handler_hook('AUTH', protocol, credentials)
         if status is MISSING:
             ...  #blarg
