@@ -31,7 +31,7 @@ from aiosmtpd.handlers import Mailbox
 from aiosmtpd.smtp import SMTP as Server, syntax, MISSING, Session
 
 
-__version__ = '0.1.10'
+__version__ = '0.1.11'
 logger = logging.getLogger('orouboros')
 
 
