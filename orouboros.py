@@ -10,18 +10,23 @@ orouboros --cert /path/to/your/certfile.pem
           --forward
           --local
 '''
+
 import argparse
 import base64
 import email.parser
+import email.utils
 import logging
 import mailbox
 import os
+import re
 import signal
 import smtplib
 import socket
 import ssl
+import time
 
 from contextlib import contextmanager
+from datetime import datetime
 from enum import Enum
 from hashlib import sha1
 from pathlib import Path
@@ -308,3 +313,44 @@ def run():
     for controller in controllers:
         logger.debug(f'stopping controller {controller}')
         controller.stop()
+
+
+def deliver_maildir(msg, maildir, create=True):
+    '''
+    Deliver an ``email.message.Message`` to the provided ``maildir``.
+
+    If ``create`` (default: ``True``) is set, attempt to create the
+    directory structure if it does not yet exist.
+    '''
+    maildir = Path(maildir)
+    tmpdir = maildir / 'tmp'
+    newdir = maildir / 'new'
+    tmpdir.mkdir(parents=True, exist_ok=True)
+    newdir.mkdir(parents=True, exist_ok=True)
+    msg_date = msg.get('Date')
+    try:
+        dt = email.utils.parsedate_to_datetime(msg_date)
+    except TypeError:
+        dt = datetime.now()
+    written = False
+    while not written:
+        try:
+            subject = re.sub('[^A-Za-z0-9]+', '-', msg.get('subject', ''))
+            subject = subject.strip('-')
+            tags = " ".join(sorted(msg.get('tags', [])))
+            rand = base64.urlsafe_b64encode(os.urandom(5)).decode('utf-8')
+            rand = rand.strip('=')
+            filename = f'{dt.strftime("%Y%m%d%H%M%S%f%z")}-{subject}-{rand}-[{tags}].eml'
+            tmpname = tmpdir / filename
+            with tmpname.open('xb') as f:
+                f.write(msg.as_bytes())
+
+            filename = newdir / filename
+            tmpname.rename(filename)
+            written = True
+        except FileExistsError:
+            pass
+
+
+if __name__ == '__main__':
+    print('okay!')
