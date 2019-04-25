@@ -57,6 +57,7 @@ def make_argparser():
     parser.add_argument('--forward-domain', action='append', required=True)
     parser.add_argument('--delivery-domain', action='append', required=True)
     parser.add_argument('--mboxdir', type=Path)
+    parser.add_argument('--wmaildir', type=Path)
     return parser
 
 
@@ -191,9 +192,11 @@ class ForwardingHandler:
 
 
 class LocalHandler:
-    def __init__(self, *, ok_domains, mbox_dir):
+    def __init__(self, *, ok_domains):
         self.ok_domains = ok_domains
-        self.mbox_dir = mbox_dir
+
+    def deliver(self, msg, recipients):
+        raise NotImplemented('Oh dear, this is not the right handler')
 
     async def handle_EHLO(self, server, session, envelope, hostname):
         session.host_name = hostname
@@ -232,12 +235,31 @@ class LocalHandler:
             logger.info(f'Sending mail to {valid_recipients}')
             parser = email.parser.BytesParser()
             msg = parser.parsebytes(envelope.original_content)
-            for recipient in valid_recipients:
-                local_part, _, domain = recipient.rpartition('@')
-                with get_mbox(self.mbox_dir, local_part) as mbox:
-                    mbox.add(msg)
+            self.deliver(msg, valid_recipients)
 
         return '250 Message accepted for delivery, eh?'
+
+
+class LocalMboxHandler(LocalHandler):
+    def __init__(self, ok_domains, mboxdir):
+        super().__init__(ok_domains=ok_domains)
+        self.mbox_dir = mbox_dir
+    
+    def deliver(self, msg, recipients):
+        for recipient in valid_recipients:
+            local_part, _, domain = recipient.rpartition('@')
+            with get_mbox(self.mbox_dir, local_part) as mbox:
+                mbox.add(msg)
+
+
+class LocalWMaildirHandler(LocalHandler):
+    def __init__(self, ok_domains, wmaildir):
+        super().__init__(ok_domains=ok_domains)
+        self.wmaildir = wmaildir
+
+    def deliver(self, msg, recipients):
+        # TODO: This should look up a map of WMaildirs -W. Werner, 2019-04-25
+        deliver_maildir(msg, self.wmaildir)
 
 
 def run():
@@ -251,11 +273,20 @@ def run():
     context.load_cert_chain(args.cert, args.key)
 
     if args.local:
-        if args.mboxdir is None:
-            parser.error('--local requires --mboxdir')
-        else:
+        if args.mboxdir is None and args.wmaildir is None:
+            parser.error('--local requires --mboxdir or --wmaildir')
+        elif args.mboxdir:
             logger.debug('Ensuring mbox path exists')
             args.mboxdir.mkdir(parents=True, exist_ok=True)
+            handler = LocalMboxHandler(
+                ok_domains=args.delivery_domain,
+                mboxdir=args.mboxdir,
+            )
+        elif args.wmaildir:
+            handler = LocalWMaildirHandler(
+                ok_domains=args.delivery_domain,
+                wmaildir=args.wmaildir,
+            )
 
     controllers = []
     if args.forward:
@@ -289,10 +320,7 @@ def run():
     if args.local:
         controllers.append(
             AuthController(
-                LocalHandler(
-                    ok_domains=args.delivery_domain,
-                    mbox_dir=args.mboxdir,
-                ),
+                handler,
                 port=args.forward_port,
                 hostname='0.0.0.0',
                 ssl_context=context,
