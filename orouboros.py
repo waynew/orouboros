@@ -16,6 +16,7 @@ import base64
 import email.parser
 import email.utils
 import logging
+import logging.handlers
 import mailbox
 import os
 import re
@@ -54,6 +55,7 @@ def make_argparser():
     parser.add_argument('--log', default='/tmp/mail.log')
     parser.add_argument('--log-level', type=str.upper, default='WARN')
     parser.add_argument('--forward-domain', action='append', required=True)
+    parser.add_argument('--delivery-domain', action='append', required=True)
     parser.add_argument('--mboxdir', type=Path)
     return parser
 
@@ -242,7 +244,7 @@ def run():
     parser = make_argparser()
     args = parser.parse_args()
 
-    logger.addHandler(logging.FileHandler(args.log))
+    logger.addHandler(logging.handlers.RotatingFileHandler(args.log, maxBytes=4000))
     logger.setLevel(getattr(logging, args.log_level))
 
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
@@ -288,7 +290,7 @@ def run():
         controllers.append(
             AuthController(
                 LocalHandler(
-                    ok_domains=args.forward_domain,
+                    ok_domains=args.delivery_domain,
                     mbox_dir=args.mboxdir,
                 ),
                 port=args.forward_port,
