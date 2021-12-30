@@ -19,7 +19,6 @@ with open(os.path.join(root, "orouboros.py")) as f:
 
 install_requires = [
     "aiosmtpd",
-    "cryptography",
 ]
 setup(
     name="orouboros",
