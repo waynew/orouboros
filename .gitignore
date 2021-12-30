@@ -3,6 +3,7 @@
 *.log
 *.egg-info
 *.venv/
+*.env/
 tags
 *.cache/
 .coverage
