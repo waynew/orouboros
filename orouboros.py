@@ -40,7 +40,7 @@ from aiosmtpd.handlers import Mailbox
 from aiosmtpd.smtp import SMTP as Server, syntax, MISSING, Session
 
 
-__version__ = "0.1.12"
+__version__ = "0.1.13"
 logger = logging.getLogger("orouboros")
 
 
@@ -191,10 +191,22 @@ class AuthController(Controller):
 
 
 class ForwardingHandler:
-    def __init__(self, *, forward_host, forward_port, ok_domains):
+    def __init__(
+        self,
+        *,
+        forward_host,
+        forward_port,
+        ok_domains,
+        authenticator,
+        sender_blocklist,
+        domain_blocklist,
+    ):
         self.forward_host = forward_host
         self.forward_port = forward_port
         self.ok_domains = ok_domains
+        self.authenticator = authenticator
+        self.sender_blocklist = sender_blocklist
+        self.domain_blocklist = domain_blocklist
 
     async def handle_exception(self, error):
         logger.warn(f"{error} caught")
