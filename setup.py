@@ -11,27 +11,15 @@ def read(fname):
 
 version = {}
 with open(os.path.join(root, "orouboros.py")) as f:
-    aiomods = (
-        "aiosmtpd",
-        "aiosmtpd.controller",
-        "aiosmtpd.handlers",
-        "aiosmtpd.smtpd",
-        "aiosmtpd.smtp",
-    )
-    del_aio = False
-    if sys.modules.get("aiosmtpd") is None:
-        for mod in aiomods:
-            sys.modules[mod] = mock.MagicMock()
-        del_aio = True
-    exec(f.read(), version)
+    for line in f:
+        if line.startswith('__version__'):
+            exec(line, version)
     __version__ = version["__version__"]
-    if del_aio:
-        for mod in aiomods:
-            del sys.modules[mod]
 
 
 install_requires = [
     "aiosmtpd",
+    "cryptography",
 ]
 setup(
     name="orouboros",
